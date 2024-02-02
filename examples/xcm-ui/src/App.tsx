@@ -11,74 +11,42 @@ import {
   StringRecord,
   getViewBuilder,
 } from "@polkadot-api/metadata-builders"
-import { ScProvider, WellKnownChain } from "@polkadot-api/sc-provider"
+import { getScProvider, WellKnownChain } from "@polkadot-api/sc-provider"
 import { createClient } from "@polkadot-api/substrate-client"
-import {
-  compact,
-  metadata,
-  CodecType,
-  Tuple,
-  V14,
-  Struct,
-  u8,
-} from "@polkadot-api/substrate-bindings"
+import { getObservableClient } from "@polkadot-api/client"
+import { filter, firstValueFrom } from "rxjs"
 
-const smProvider = ScProvider(WellKnownChain.westend2)
-const { chainHead } = createClient(smProvider)
-type Metadata = CodecType<typeof metadata>
-const opaqueMeta = Tuple(compact, metadata)
+const ScProvider = getScProvider()
+const smProvider = ScProvider(WellKnownChain.westend2).relayChain
 
-const getMetadata = (): Promise<Metadata> =>
-  new Promise<Metadata>((res, rej) => {
-    let requested = false
-    const chainHeadFollower = chainHead(
-      true,
-      (message) => {
-        if (message.type === "newBlock") {
-          chainHeadFollower.unpin([message.blockHash])
-          return
-        }
-        if (requested || message.type !== "initialized") return
-        const latestFinalized = message.finalizedBlockHash
-        if (requested) return
-        requested = true
+const client = getObservableClient(createClient(smProvider))
 
-        chainHeadFollower
-          .call(latestFinalized, "Metadata_metadata", "")
-          .then((response) => {
-            const [, metadata] = opaqueMeta.dec(response)
-            res(metadata)
-          })
-          .catch((e) => {
-            console.log("error", e)
-            rej(e)
-          })
-          .finally(() => {
-            chainHeadFollower.unfollow()
-          })
-      },
-      () => {},
-    )
-  })
+const getMetadata = async () => {
+  const chainHead = client.chainHead$()
+  const metadata = await firstValueFrom(
+    chainHead.metadata$.pipe(filter(Boolean)),
+  )
+  chainHead.unfollow()
+  return metadata
+}
 
 const App: Component = () => {
-  const [instructions, setInstructions] = createSignal([])
-  const [chosenInstructions, setChosenInstructions] = createSignal([])
+  const [instructions, setInstructions] = createSignal<any[]>([])
+  const [chosenInstructions, setChosenInstructions] = createSignal<any[]>([])
 
   createEffect(async () => {
-    const chainMetadata = await getMetadata()
-    const v14Metadata = chainMetadata.metadata.value as V14
-    const xcmPallet = v14Metadata.pallets.find(
-      (pallet) => pallet.name === "XcmPallet",
-    )
-    const { buildDefinition, callDecoder } = getViewBuilder(v14Metadata)
-    const definition = buildDefinition(xcmPallet.calls)
-    console.log(definition)
-    setInstructions(
-      Object.entries(
-        definition.shape.shape.execute.shape.message.shape.V3.shape.shape,
-      ),
-    )
+    const v14Metadata = await getMetadata()
+    const builder = getViewBuilder(v14Metadata)
+    const executeView = builder.buildCall("XcmPallet", "execute")
+
+    const xcmExecutionShape = executeView.view.shape
+    console.log({ xcmExecutionShape })
+    if (xcmExecutionShape.codec !== "Struct") throw null
+    const xcmMessage = xcmExecutionShape.shape.message
+    if (xcmMessage.codec !== "Enum") throw null
+    const xcmMessageV3 = xcmMessage.shape.V3
+
+    setInstructions(Object.entries((xcmMessageV3 as any).shape.shape))
     // console.log(Object.entries(definition.shape.shape.execute.shape.message.shape.V3.shape.shape));
     // console.log(definition.shape.shape.execute.shape.message.shape.V3.shape.shape.WithdrawAsset.shape.shape.id.shape.Concrete.shape.interior.shape);
   })
