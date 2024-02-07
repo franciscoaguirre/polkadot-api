@@ -13,16 +13,16 @@
       "node": {
         "production": {
           "import": "./dist/index.mjs",
-          "require": "./dist/min/index.js",
+          "require": "./dist/min/index.cjs",
           "default": "./dist/index.js"
         },
         "import": "./dist/index.mjs",
-        "require": "./dist/index.js",
+        "require": "./dist/index.cjs",
         "default": "./dist/index.js"
       },
       "module": "./dist/index.mjs",
       "import": "./dist/index.mjs",
-      "require": "./dist/index.js",
+      "require": "./dist/index.cjs",
       "default": "./dist/index.js"
     },
     "./package.json": "./package.json"
